@@ -47,9 +47,36 @@ def load_ebi_data():
 def load_opengwas_inventory():
     res = requests.get("https://api.opengwas.io/api/gwasinfo", headers=headers)
     if res.status_code == 200:
-        df = pd.DataFrame(res.json())
-        df['Extract_Year'] = pd.to_numeric(df['year'], errors='coerce').fillna(2020).astype(int)
-        df['N_Size'] = pd.to_numeric(df['sample_size'], errors='coerce').fillna(0).astype(int)
+        data = res.json()
+        
+        # 🛠️ KRİTİK DÜZELTME: OpenGWAS API'si list yerine sözlük (dict) döner.
+        # Pandas'ın tabloyu doğru kurması için orient='index' kullanıyoruz.
+        if isinstance(data, dict):
+            df = pd.DataFrame.from_dict(data, orient='index')
+        else:
+            df = pd.DataFrame(data)
+            
+        # Eğer ID'ler index olarak kaldıysa onları gerçek bir sütuna dönüştür
+        if 'id' not in df.columns:
+            df = df.reset_index().rename(columns={'index': 'id'})
+            
+        # Yıl sütununu güvenli çek (hata varsa 2020 yap)
+        if 'year' in df.columns:
+            df['Extract_Year'] = pd.to_numeric(df['year'], errors='coerce').fillna(2020).astype(int)
+        else:
+            df['Extract_Year'] = 2020
+            
+        # Örneklem boyutunu güvenli çek
+        if 'sample_size' in df.columns:
+            df['N_Size'] = pd.to_numeric(df['sample_size'], errors='coerce').fillna(0).astype(int)
+        else:
+            df['N_Size'] = 0
+            
+        # Diğer zorunlu alanlar için güvenlik kalkanı (çökmeyi önler)
+        for col in ['author', 'trait', 'population']:
+            if col not in df.columns:
+                df[col] = "Unknown"
+                
         return df
     return pd.DataFrame()
 
@@ -71,7 +98,7 @@ else:
     with st.spinner("Fetching active OpenGWAS core inventory..."):
         df = load_opengwas_inventory()
     trait_col = 'trait'
-    sample_col = 'population' # Clean direct population categories from OpenGWAS
+    sample_col = 'population' 
     author_col = 'author'
     id_col = 'id'
 
@@ -93,7 +120,6 @@ if not df.empty:
             selected_ancestries = st.multiselect("Quick-Select Cohort", major_ancestries)
             searched_ancestry = st.text_input("Manual Search", placeholder="e.g., Finnish, Japanese")
             
-            # Strict mode only makes sense for Messi EBI text blocks
             if db_source.startswith("EBI"):
                 strict_ancestry = st.checkbox("Strict Ancestry (Exclude mixed cohorts)", value=False)
             else:
@@ -119,7 +145,6 @@ if not df.empty:
         if st.session_state.get("sandbox_submitted", False):
             res = df.copy()
             
-            # Apply Filtering
             if selected_trait != "All":
                 res = res[res[trait_col].astype(str) == selected_trait]
                 
@@ -140,7 +165,6 @@ if not df.empty:
                         
             res = res[res['Extract_Year'] >= selected_year]
             
-            # Apply Standardized Sorting
             if sort_by == "Sample Size (High to Low)":
                 res = res.sort_values(by='N_Size', ascending=False)
             elif sort_by == "Publication Year (Newest)":
@@ -154,7 +178,6 @@ if not df.empty:
                 with tab_charts:
                     v_col1, v_col2 = st.columns(2)
                     with v_col1:
-                        # Pie Chart Logic mapped onto standardized targets
                         fig_pie = px.pie(res.head(20), names=author_col, values='N_Size', 
                                          title="Top Cohorts Distribution by Sample Size (N)",
                                          hole=0.4, color_discrete_sequence=px.colors.qualitative.Safe)
@@ -169,7 +192,6 @@ if not df.empty:
                 with tab_map:
                     st.markdown("##### 📍 Harmonized Spatial Variant Engine")
                     
-                    # Unified coordinate dictionary that maps both EBI descriptions and OpenGWAS clean tags
                     global_geo_db = {
                         'UK': {'lat': 55.3781, 'lon': -3.4360, 'lbl': 'United Kingdom'},
                         'United Kingdom': {'lat': 55.3781, 'lon': -3.4360, 'lbl': 'United Kingdom'},
@@ -223,11 +245,9 @@ if not df.empty:
                     else:
                         st.info("🗺️ No standardized geographic mapping could be inferred for this subset.")
                         
-                # --- UNIFIED DATAFRAME PRESENTATION AND BRIDGE PREPARATION ---
                 st.markdown("---")
                 st.write(f"**Total Consolidated Rows Found:** {len(res)}")
                 
-                # Standardizing output table shape regardless of source DB schema
                 standardized_df = pd.DataFrame({
                     'Database Source': db_source.split()[0],
                     'Target ID': res[id_col].astype(str),
@@ -247,7 +267,6 @@ if not df.empty:
                     raw_id1 = standardized_df.iloc[selected_rows[0]]['Target ID']
                     raw_id2 = standardized_df.iloc[selected_rows[1]]['Target ID']
                     
-                    # Final safety bridge formatting
                     final_id1 = f"ebi-a-{raw_id1}" if (db_source.startswith("EBI") and not raw_id1.startswith("ebi-a-")) else raw_id1
                     final_id2 = f"ebi-a-{raw_id2}" if (db_source.startswith("EBI") and not raw_id2.startswith("ebi-a-")) else raw_id2
                     
