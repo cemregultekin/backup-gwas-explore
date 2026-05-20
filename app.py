@@ -11,7 +11,7 @@ import numpy as np
 st.set_page_config(page_title="Multi-DB GWAS Aggregator", layout="wide", page_icon="🌐")
 
 st.title("🌐 Multi-Database GWAS Federated Aggregator")
-st.markdown("A sandbox environment to explore and standardize cross-database GWAS catalog querying. Choose your data provider, apply specialized filters, and extract cohorts seamlessly.")
+st.markdown("A sandbox environment to explore cross-database GWAS catalogs. Use diverse sources for discovery, and unlock direct summary stats comparison via OpenGWAS Core.")
 
 # --- SECRETS CONFIGURATION CHECK ---
 try:
@@ -48,31 +48,24 @@ def load_opengwas_inventory():
     res = requests.get("https://api.opengwas.io/api/gwasinfo", headers=headers)
     if res.status_code == 200:
         data = res.json()
-        
-        # 🛠️ KRİTİK DÜZELTME: OpenGWAS API'si list yerine sözlük (dict) döner.
-        # Pandas'ın tabloyu doğru kurması için orient='index' kullanıyoruz.
         if isinstance(data, dict):
             df = pd.DataFrame.from_dict(data, orient='index')
         else:
             df = pd.DataFrame(data)
             
-        # Eğer ID'ler index olarak kaldıysa onları gerçek bir sütuna dönüştür
         if 'id' not in df.columns:
             df = df.reset_index().rename(columns={'index': 'id'})
             
-        # Yıl sütununu güvenli çek (hata varsa 2020 yap)
         if 'year' in df.columns:
             df['Extract_Year'] = pd.to_numeric(df['year'], errors='coerce').fillna(2020).astype(int)
         else:
             df['Extract_Year'] = 2020
             
-        # Örneklem boyutunu güvenli çek
         if 'sample_size' in df.columns:
             df['N_Size'] = pd.to_numeric(df['sample_size'], errors='coerce').fillna(0).astype(int)
         else:
             df['N_Size'] = 0
             
-        # Diğer zorunlu alanlar için güvenlik kalkanı (çökmeyi önler)
         for col in ['author', 'trait', 'population']:
             if col not in df.columns:
                 df[col] = "Unknown"
@@ -108,7 +101,7 @@ if not df.empty:
     
     with col1:
         st.header("🛠️ Specialized Filters")
-        st.info(f"Currently active schema tailored for: **{db_source.split()[0]}**")
+        st.info(f"Active Provider: **{db_source.split()[0]}**")
         
         with st.form("filter_form"):
             st.markdown("### Disease / Trait")
@@ -133,14 +126,14 @@ if not df.empty:
             st.markdown("### Sorting")
             sort_by = st.selectbox("Order Results By:", ["Sample Size (High to Low)", "Publication Year (Newest)", "First Author (A-Z)"])
             
-            submitted = st.form_submit_button("🚀 Query & Harmonize Views")
+            submitted = st.form_submit_button("🚀 Query Database")
             
         if submitted:
             st.session_state["sandbox_submitted"] = True
             
-    # --- RESULTS AND STANDARDIZED GRAPHICS PANEL ---
+    # --- RESULTS PANEL ---
     with col2:
-        st.subheader("📊 Cross-Database Analytics Panel")
+        st.subheader("📊 Consolidated View")
         
         if st.session_state.get("sandbox_submitted", False):
             res = df.copy()
@@ -191,7 +184,6 @@ if not df.empty:
                         
                 with tab_map:
                     st.markdown("##### 📍 Harmonized Spatial Variant Engine")
-                    
                     global_geo_db = {
                         'UK': {'lat': 55.3781, 'lon': -3.4360, 'lbl': 'United Kingdom'},
                         'United Kingdom': {'lat': 55.3781, 'lon': -3.4360, 'lbl': 'United Kingdom'},
@@ -202,7 +194,6 @@ if not df.empty:
                         'Finnish': {'lat': 61.9241, 'lon': 25.7482, 'lbl': 'Finland'},
                         'Japan': {'lat': 36.2048, 'lon': 138.2529, 'lbl': 'Japan'},
                         'Japanese': {'lat': 36.2048, 'lon': 138.2529, 'lbl': 'Japan'},
-                        'Easley': {'lat': 34.0479, 'lon': 100.6197, 'lbl': 'East Asian Core'},
                         'East Asian': {'lat': 34.0479, 'lon': 100.6197, 'lbl': 'East Asian Core'},
                         'Eas': {'lat': 34.0479, 'lon': 100.6197, 'lbl': 'East Asian Core'},
                         'Korea': {'lat': 35.9078, 'lon': 127.7669, 'lbl': 'Korea'},
@@ -258,22 +249,33 @@ if not df.empty:
                     'Year': res['Extract_Year']
                 }).head(100)
                 
+                # Akıllı yönlendirme için çoklu seçim modu aktif
                 selection = st.dataframe(
                     standardized_df, use_container_width=True, on_select="rerun", selection_mode="multi-row"
                 )
                 
                 selected_rows = selection.get("selection", {}).get("rows", [])
-                if len(selected_rows) == 2:
-                    raw_id1 = standardized_df.iloc[selected_rows[0]]['Target ID']
-                    raw_id2 = standardized_df.iloc[selected_rows[1]]['Target ID']
-                    
-                    final_id1 = f"ebi-a-{raw_id1}" if (db_source.startswith("EBI") and not raw_id1.startswith("ebi-a-")) else raw_id1
-                    final_id2 = f"ebi-a-{raw_id2}" if (db_source.startswith("EBI") and not raw_id2.startswith("ebi-a-")) else raw_id2
-                    
-                    st.success(f"Bridge Ready! Locked IDs: **{final_id1}** and **{final_id2}**")
-                    if st.button("🚀 Go Compare Portal (Mock Switch)", type="primary"):
-                        st.info("Bridge validated successfully. In your main multi-page architecture, this will smoothly switch page context!")
+                
+                # 🛠️ STRATEJİK DEĞİŞİKLİK: Seçilen Veritabanına Göre Buton Davranışı
+                if db_source.startswith("OpenGWAS"):
+                    if len(selected_rows) == 2:
+                        id1 = standardized_df.iloc[selected_rows[0]]['Target ID']
+                        id2 = standardized_df.iloc[selected_rows[1]]['Target ID']
+                        st.success(f"Locked OpenGWAS IDs: **{id1}** and **{id2}**")
+                        if st.button("🚀 Run Cross-Population Portability Analysis", type="primary"):
+                            st.session_state["auto_study_1"] = id1
+                            st.session_state["auto_study_2"] = id2
+                            st.success("Redirecting to comparison portal...")
+                            # st.switch_page("pages/2_⚖️_Compare_GWAS.py")
+                    elif len(selected_rows) > 2:
+                        st.warning("⚠️ Please select exactly 2 studies for comparison.")
+                    else:
+                        st.info("💡 Select exactly TWO rows from the table above to unlock the 'Compare' dashboard bridge.")
+                
+                else:
+                    # EBI Seçildiyse sadece veri izleme modudur, buton çıkmaz yönlendirme yapılmaz
+                    st.info("ℹ️ **Discovery Mode Active:** EBI GWAS Catalog is currently optimized for cohort distribution discovery and metadata visualization. To execute down-stream variant alignment (Beta/EAF Correlation), please switch the active data provider to **OpenGWAS Core Inventory** in the sidebar.")
             else:
                 st.warning("⚠️ No records matched the constraints inside the selected database engine.")
         else:
-            st.info("👈 Choose your master Data Provider on the left and hit 'Query' to initiate unified sandbox view.")
+            st.info("👈 Choose your master Data Provider on the left and hit 'Query' to initiate unified view.")
